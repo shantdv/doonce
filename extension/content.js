@@ -180,6 +180,10 @@ setInterval(() => {
 }, 500)
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message.type === "DOONCE_PING") {
+    sendResponse({ ok: true })
+  }
+
   if (message.type === "DOONCE_START") {
     startRecording()
     sendResponse({ ok: true })

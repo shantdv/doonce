@@ -5,9 +5,29 @@ async function activeTab() {
   return tab
 }
 
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+async function ensureRecorder(tabId) {
+  try {
+    const response = await chrome.tabs.sendMessage(tabId, { type: "DOONCE_PING" })
+    if (response?.ok) return
+  } catch {
+    // The tab may have been opened before the extension was loaded.
+  }
+
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    files: ["content.js"]
+  })
+  await wait(100)
+}
+
 async function sendToTab(message) {
   const tab = await activeTab()
   if (!tab?.id) throw new Error("No active tab")
+  await ensureRecorder(tab.id)
   return chrome.tabs.sendMessage(tab.id, message)
 }
 
