@@ -158,7 +158,8 @@ export default function Home() {
       const data = await response.json()
       if (!response.ok) throw new Error(data.error)
       setPack(data.tracePack)
-      setMessage("TracePack compiled. Inspect the steps, then run validation.")
+      const sourceLabel = data.compiler?.source === "llm" ? "LLM-refined" : "heuristic"
+      setMessage(`TracePack compiled (${sourceLabel}). Inspect the steps, then run validation.`)
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not compile TracePack")
     } finally {
