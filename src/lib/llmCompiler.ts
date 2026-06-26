@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk"
 import { OutputMark, RawTrace, TracePack, tracePackSchema } from "./types"
 import { compileTracePack } from "./compiler"
 
+<<<<<<< HEAD
 const forbiddenActions = ["purchase", "delete", "send_message", "submit_payment", "change_settings"] as const
 
 function sameSet(a: string[], b: string[]) {
@@ -28,6 +29,30 @@ function findReadOnlyViolation(pack: TracePack, allowedDomains: string[]) {
   for (const step of pack.steps) {
     if (step.action.type === "fill") {
       return `write action rejected at ${step.id}: fill is not allowed in read-only TracePacks`
+=======
+/**
+ * Verifies the LLM proposal against the read-only v0 rules. Never mutates the
+ * proposal — a violation here means the whole proposal is untrustworthy, so the
+ * caller must discard it and fall back to the heuristic draft rather than ship
+ * a silently-edited version of what the model returned.
+ */
+function findReadOnlyViolation(pack: TracePack, allowedDomains: string[]): string | undefined {
+  if (pack.risk.level !== "read_only") {
+    return `risk.level was "${pack.risk.level}", not "read_only"`
+  }
+
+  const allowedSet = new Set(allowedDomains)
+
+  for (const domain of pack.risk.allowedDomains) {
+    if (!allowedSet.has(domain)) {
+      return `risk.allowedDomains included "${domain}", outside recorded domains ${JSON.stringify(allowedDomains)}`
+    }
+  }
+
+  for (const step of pack.steps) {
+    if (step.action.type === "fill" && allowedSet.size > 0) {
+      return `step ${step.id} proposed a fill action, which is not permitted in read-only v0`
+>>>>>>> 1d15b504196827646fe0d60df8a7c33e8a1ac563
     }
 
     if (step.action.type === "goto") {
@@ -35,11 +60,18 @@ function findReadOnlyViolation(pack: TracePack, allowedDomains: string[]) {
       try {
         host = new URL(step.action.urlTemplate).hostname
       } catch {
+<<<<<<< HEAD
         return `invalid goto URL at ${step.id}: ${step.action.urlTemplate}`
       }
 
       if (!allowedSet.has(host)) {
         return `out-of-domain goto rejected at ${step.id}: ${host}`
+=======
+        return `step ${step.id} had an unparseable goto URL: ${step.action.urlTemplate}`
+      }
+      if (allowedSet.size > 0 && !allowedSet.has(host)) {
+        return `step ${step.id} navigated to "${host}", outside allowed domains ${JSON.stringify(allowedDomains)}`
+>>>>>>> 1d15b504196827646fe0d60df8a7c33e8a1ac563
       }
     }
   }
@@ -132,10 +164,17 @@ export async function compileTracePackWithLlm(
 
     const proposalJson = extractJson(textBlock.text)
     const validated = tracePackSchema.parse(proposalJson)
+<<<<<<< HEAD
     const violation = findReadOnlyViolation(validated, allowedDomains)
 
     if (violation) {
       throw new Error(violation)
+=======
+
+    const violation = findReadOnlyViolation(validated, allowedDomains)
+    if (violation) {
+      throw new Error(`LLM proposal violated read-only v0 rules: ${violation}`)
+>>>>>>> 1d15b504196827646fe0d60df8a7c33e8a1ac563
     }
 
     return { tracePack: validated, source: "llm" }
