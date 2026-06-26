@@ -1,0 +1,61 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>DoOnce Recorder</title>
+    <style>
+      body {
+        width: 320px;
+        margin: 0;
+        padding: 16px;
+        font-family: Arial, Helvetica, sans-serif;
+        background: #f6f5f2;
+        color: #171717;
+      }
+
+      h1 {
+        font-size: 20px;
+        margin: 0 0 6px;
+      }
+
+      p {
+        margin: 0 0 14px;
+        color: #6b665f;
+        line-height: 1.4;
+      }
+
+      button {
+        width: 100%;
+        min-height: 40px;
+        border: 0;
+        border-radius: 7px;
+        margin-top: 8px;
+        background: #0f766e;
+        color: white;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      button.secondary {
+        background: #27221e;
+      }
+
+      #status {
+        margin-top: 12px;
+        font-size: 13px;
+        color: #115e59;
+        font-weight: 700;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>DoOnce</h1>
+    <p>Record the active tab, then export a RawTrace JSON file.</p>
+    <button id="start">Start Recording</button>
+    <button class="secondary" id="stop">Stop Recording</button>
+    <button class="secondary" id="send">Stop and Send to App</button>
+    <button id="export">Export Trace</button>
+    <div id="status">Idle</div>
+    <script src="popup.js"></script>
+  </body>
+</html>
