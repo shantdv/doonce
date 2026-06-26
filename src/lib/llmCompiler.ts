@@ -2,40 +2,44 @@ import Anthropic from "@anthropic-ai/sdk"
 import { OutputMark, RawTrace, TracePack, tracePackSchema } from "./types"
 import { compileTracePack } from "./compiler"
 
-const forbiddenActions = ["purchase", "delete", "send_message", "submit_payment", "change_settings"] as const
-
 /**
- * Strips anything the LLM proposal must never be trusted with: write actions,
- * domains outside what was actually recorded, and non-read-only risk levels.
- * Runs after schema validation so it can assume well-formed shape.
+ * Verifies the LLM proposal against the read-only v0 rules. Never mutates the
+ * proposal — a violation here means the whole proposal is untrustworthy, so the
+ * caller must discard it and fall back to the heuristic draft rather than ship
+ * a silently-edited version of what the model returned.
  */
-function sanitizeToReadOnly(pack: TracePack, allowedDomains: string[]): TracePack {
+function findReadOnlyViolation(pack: TracePack, allowedDomains: string[]): string | undefined {
+  if (pack.risk.level !== "read_only") {
+    return `risk.level was "${pack.risk.level}", not "read_only"`
+  }
+
   const allowedSet = new Set(allowedDomains)
 
-  return {
-    ...pack,
-    risk: {
-      level: "read_only",
-      allowedDomains,
-      forbiddenActions: [...forbiddenActions]
-    },
-    steps: pack.steps
-      .filter((step) => step.action.type !== "fill" || allowedSet.size === 0)
-      .map((step) => {
-        if (step.action.type === "goto") {
-          let host: string
-          try {
-            host = new URL(step.action.urlTemplate).hostname
-          } catch {
-            host = ""
-          }
-          if (allowedSet.size > 0 && !allowedSet.has(host)) {
-            return { ...step, failurePolicy: "stop_and_report" as const }
-          }
-        }
-        return step
-      })
+  for (const domain of pack.risk.allowedDomains) {
+    if (!allowedSet.has(domain)) {
+      return `risk.allowedDomains included "${domain}", outside recorded domains ${JSON.stringify(allowedDomains)}`
+    }
   }
+
+  for (const step of pack.steps) {
+    if (step.action.type === "fill" && allowedSet.size > 0) {
+      return `step ${step.id} proposed a fill action, which is not permitted in read-only v0`
+    }
+
+    if (step.action.type === "goto") {
+      let host: string
+      try {
+        host = new URL(step.action.urlTemplate).hostname
+      } catch {
+        return `step ${step.id} had an unparseable goto URL: ${step.action.urlTemplate}`
+      }
+      if (allowedSet.size > 0 && !allowedSet.has(host)) {
+        return `step ${step.id} navigated to "${host}", outside allowed domains ${JSON.stringify(allowedDomains)}`
+      }
+    }
+  }
+
+  return undefined
 }
 
 function buildPrompt(
@@ -123,10 +127,13 @@ export async function compileTracePackWithLlm(
 
     const proposalJson = extractJson(textBlock.text)
     const validated = tracePackSchema.parse(proposalJson)
-    const sanitized = sanitizeToReadOnly(validated, allowedDomains)
-    const reValidated = tracePackSchema.parse(sanitized)
 
-    return { tracePack: reValidated, source: "llm" }
+    const violation = findReadOnlyViolation(validated, allowedDomains)
+    if (violation) {
+      throw new Error(`LLM proposal violated read-only v0 rules: ${violation}`)
+    }
+
+    return { tracePack: validated, source: "llm" }
   } catch (error) {
     return {
       tracePack: heuristicDraft,
