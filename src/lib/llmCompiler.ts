@@ -4,38 +4,47 @@ import { compileTracePack } from "./compiler"
 
 const forbiddenActions = ["purchase", "delete", "send_message", "submit_payment", "change_settings"] as const
 
-/**
- * Strips anything the LLM proposal must never be trusted with: write actions,
- * domains outside what was actually recorded, and non-read-only risk levels.
- * Runs after schema validation so it can assume well-formed shape.
- */
-function sanitizeToReadOnly(pack: TracePack, allowedDomains: string[]): TracePack {
+function sameSet(a: string[], b: string[]) {
+  if (a.length !== b.length) return false
+  const bSet = new Set(b)
+  return a.every((value) => bSet.has(value))
+}
+
+function findReadOnlyViolation(pack: TracePack, allowedDomains: string[]) {
   const allowedSet = new Set(allowedDomains)
 
-  return {
-    ...pack,
-    risk: {
-      level: "read_only",
-      allowedDomains,
-      forbiddenActions: [...forbiddenActions]
-    },
-    steps: pack.steps
-      .filter((step) => step.action.type !== "fill" || allowedSet.size === 0)
-      .map((step) => {
-        if (step.action.type === "goto") {
-          let host: string
-          try {
-            host = new URL(step.action.urlTemplate).hostname
-          } catch {
-            host = ""
-          }
-          if (allowedSet.size > 0 && !allowedSet.has(host)) {
-            return { ...step, failurePolicy: "stop_and_report" as const }
-          }
-        }
-        return step
-      })
+  if (pack.risk.level !== "read_only") {
+    return `risk.level must be read_only, got ${pack.risk.level}`
   }
+
+  if (!sameSet(pack.risk.allowedDomains, allowedDomains)) {
+    return `risk.allowedDomains must match recorded domains: ${allowedDomains.join(", ")}`
+  }
+
+  if (!sameSet(pack.risk.forbiddenActions, [...forbiddenActions])) {
+    return "risk.forbiddenActions must match the required forbidden action list"
+  }
+
+  for (const step of pack.steps) {
+    if (step.action.type === "fill") {
+      return `write action rejected at ${step.id}: fill is not allowed in read-only TracePacks`
+    }
+
+    if (step.action.type === "goto") {
+      let host: string
+      try {
+        host = new URL(step.action.urlTemplate).hostname
+      } catch {
+        return `invalid goto URL at ${step.id}: ${step.action.urlTemplate}`
+      }
+
+      if (!allowedSet.has(host)) {
+        return `out-of-domain goto rejected at ${step.id}: ${host}`
+      }
+    }
+  }
+
+  return undefined
 }
 
 function buildPrompt(
@@ -123,10 +132,13 @@ export async function compileTracePackWithLlm(
 
     const proposalJson = extractJson(textBlock.text)
     const validated = tracePackSchema.parse(proposalJson)
-    const sanitized = sanitizeToReadOnly(validated, allowedDomains)
-    const reValidated = tracePackSchema.parse(sanitized)
+    const violation = findReadOnlyViolation(validated, allowedDomains)
 
-    return { tracePack: reValidated, source: "llm" }
+    if (violation) {
+      throw new Error(violation)
+    }
+
+    return { tracePack: validated, source: "llm" }
   } catch (error) {
     return {
       tracePack: heuristicDraft,
